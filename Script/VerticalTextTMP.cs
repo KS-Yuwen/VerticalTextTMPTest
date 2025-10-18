@@ -1,5 +1,6 @@
 ﻿using TMPro;
 using UnityEngine;
+using UnityEngine.UIElements;
 
 /// <summary>
 /// TextMeshProを縦書きにするコンポーネント
@@ -9,6 +10,13 @@ using UnityEngine;
 public class VerticalTextTMP : MonoBehaviour
 {
     private TMP_Text m_TextComponent = null;
+
+    /// <summary>文字間の追加スペース(0で密着)</summary>
+    private const float EXTRA_VERTICAL_SPACE = 2.0f;
+    /// <summary>半角スペースの間隔</summary>
+    private const float HALF_SPACE_HEIGHT = 10.0f;
+    /// <summary>全角スペースの間隔</summary>
+    private const float FULL_SPACE_HEIGHT = 10.0f;
 
     private void Awake()
     {
@@ -45,7 +53,7 @@ public class VerticalTextTMP : MonoBehaviour
             return;
         }
 
-        float scale = m_TextComponent.rectTransform.lossyScale.x;
+        // --- 定数の定義と初期化 ---
         Vector3[] firstDestVertices = textInfo.meshInfo[0].vertices;
         // 1文字の高さ（縦書き時の幅に相当）
         float baseCharacterHeight = firstDestVertices[1].y - firstDestVertices[0].y;
@@ -55,10 +63,7 @@ public class VerticalTextTMP : MonoBehaviour
         float columnSpacing = baseCharacterHeight * 1.5f;
 
         int currentColumn = 0;  // 現在の列(0始まり)
-
         float yOffsetAccumulator = 0f;  // 累積的なY座標オフセット。この値が次の文字の配置基準になる。
-
-        const float EXTRA_VERTICAL_SPACE = 0.0f;   // 文字間の追加スペース (調整可能)
 
         string originalText = m_TextComponent.text;
         string normalizedText = originalText.Replace("\\n", "\n"); // 改行コードを統一
@@ -66,6 +71,19 @@ public class VerticalTextTMP : MonoBehaviour
         // 最後の文字のディセンダーを記憶し、次の文字のアセンダーとの間隔を計算する
         float previousDescender = 0f;
 
+        // 全ての列の開始高さを統一するための基準値（最初の可視文字のアセンダー）
+        float referenceAscenderScaled = 0f;
+        for (int i = 0; i < textInfo.characterCount; i++)
+        {
+            var cInfo = textInfo.characterInfo[i];
+            if (cInfo.isVisible)
+            {
+                referenceAscenderScaled = cInfo.ascender * cInfo.scale;
+                break;
+            }
+        }
+
+        // --- メインループ ---
         // 各文字の頂点を回転・移動
         for (int index = 0; index < textInfo.characterCount; index++)
         {
@@ -82,28 +100,57 @@ public class VerticalTextTMP : MonoBehaviour
                 continue;
             }
 
+            float charScale = charInfo.scale;
+
             if (!charInfo.isVisible)
-            {   // 表示されていない文字はスキップ
+            {
+                char c = normalizedText[index];
+                float spaceMove = 0f;
+
+                if (c == ' ')
+                {   // 半角スペース
+                    spaceMove = HALF_SPACE_HEIGHT * charScale;
+                }
+                else if (c == '　')
+                {   // 全角スペース
+                    spaceMove = FULL_SPACE_HEIGHT * charScale;
+                }
+
+                if (spaceMove > 0f)
+                {   // スペースの高さ分だけオフセットを進める
+                    yOffsetAccumulator -= spaceMove;
+                }
+                // スペース直後の文字は「改行後」と同じ基準高さから始まるようにリセットする
+                previousDescender = 0f;
                 continue;
             }
 
+            // 可視文字の処理
             // 次の文字を配置するためのYオフセットを計算
             // 前の文字のディセンダーと、現在の文字のアセンダーを考慮
             float currentAscender = charInfo.ascender; // 現在の文字の上端
 
+            // --- Yオフセットの計算と更新 ---
+            bool isColumnStart = (index == 0) || (index > 0 && normalizedText[index - 1] == '\n');
+            bool isAfterReset = previousDescender == 0f;
 
-            // 最初の文字の場合、累積オフセットは0のまま（ただし、文字のアセンダー分だけ下にずらす必要がある）
-            if (index > 0 && normalizedText[index - 1] != '\n')
-            {
-                // Yオフセットを更新: 
-                // 既存のyOffsetAccumulatorから、前の文字のディセンダーと現在の文字のアセンダーを考慮した間隔分を引く
-                float requiredSpace = (currentAscender - previousDescender) * scale;
-                yOffsetAccumulator -= requiredSpace + EXTRA_VERTICAL_SPACE;
+
+            // 最初の文字または改行直後の文字の場合
+            if (isColumnStart)
+            {   // 固定の基準高さを使用: 1行目の文字と同じ高さから開始
+                yOffsetAccumulator -= referenceAscenderScaled;
             }
-            // 最初の文字または改行直後の文字の場合、アセンダー分だけ下に配置する
-            else if (index == 0 || (index > 0 && normalizedText[index - 1] == '\n'))
+            // スペース直後
+            else if (isAfterReset)
             {
-                yOffsetAccumulator -= currentAscender * scale;
+                yOffsetAccumulator -= (currentAscender * charScale) + EXTRA_VERTICAL_SPACE;
+            }
+            // 連続する文字の場合
+            else
+            {   // 密着調整: 前の文字の下端と現在の文字の上端の差分を計算
+                // requiredMove は次の文字のアセンダー(scaled)から前の文字のディセンダー(scaled)までの距離
+                float requiredMove = (currentAscender * charScale) - previousDescender;
+                yOffsetAccumulator -= requiredMove + EXTRA_VERTICAL_SPACE;
             }
 
             int materialIndex = charInfo.materialReferenceIndex;
@@ -145,7 +192,7 @@ public class VerticalTextTMP : MonoBehaviour
                 destVertices[vertexIndex + i] = vertices[i] + finalOffset;
             }
 
-            previousDescender = charInfo.descender;
+            previousDescender = charInfo.descender * charScale;
         }
 
         // メッシュ情報を更新
