@@ -17,6 +17,8 @@ public class VerticalTextTMP2 : MonoBehaviour
     private const float HALF_SPACE_HEIGHT = 10.0f;
     /// <summary>全角スペースの間隔</summary>
     private const float FULL_SPACE_HEIGHT = 20.0f;
+    /// <summary>列間の倍率（文字高さに対する）</summary>
+    private const float COLUMN_SPACING_RATIO = 1.0f;
 
     /// <summary>句読点リスト</summary>
     private const string PUNCTUATION_MARKS = "、。？！）】｝〕》.!?";
@@ -118,7 +120,7 @@ public class VerticalTextTMP2 : MonoBehaviour
         // 1文字目の左上X座標を列の基準とする
         startX = firstDestVertices[1].x;
         // 列間の間隔を設定
-        columnSpacing = baseCharacterHeight * 1.5f;
+        columnSpacing = baseCharacterHeight * COLUMN_SPACING_RATIO;
 
         // 全ての列の開始高さを統一するための基準値
         referenceAscenderScaled = 0f;
