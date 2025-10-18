@@ -45,6 +45,7 @@ public class VerticalTextTMP : MonoBehaviour
             return;
         }
 
+        float scale = m_TextComponent.rectTransform.lossyScale.x;
         Vector3[] firstDestVertices = textInfo.meshInfo[0].vertices;
         // 1文字の高さ（縦書き時の幅に相当）
         float baseCharacterHeight = firstDestVertices[1].y - firstDestVertices[0].y;
@@ -54,9 +55,9 @@ public class VerticalTextTMP : MonoBehaviour
         float columnSpacing = baseCharacterHeight * 1.5f;
 
         int currentColumn = 0;  // 現在の列(0始まり)
-        
+
         float yOffsetAccumulator = 0f;  // 累積的なY座標オフセット。この値が次の文字の配置基準になる。
-        
+
         const float EXTRA_VERTICAL_SPACE = 0.0f;   // 文字間の追加スペース (調整可能)
 
         string originalText = m_TextComponent.text;
@@ -66,7 +67,7 @@ public class VerticalTextTMP : MonoBehaviour
         float previousDescender = 0f;
 
         // 各文字の頂点を回転・移動
-        for (int index = 0 ; index < textInfo.characterCount; index++)
+        for (int index = 0; index < textInfo.characterCount; index++)
         {
             var charInfo = textInfo.characterInfo[index];
 
@@ -90,19 +91,19 @@ public class VerticalTextTMP : MonoBehaviour
             // 前の文字のディセンダーと、現在の文字のアセンダーを考慮
             float currentAscender = charInfo.ascender; // 現在の文字の上端
 
-            // Yオフセットを更新: 
-            // 既存のyOffsetAccumulatorから、前の文字のディセンダーと現在の文字のアセンダーを考慮した間隔分を引く
-            float requiredSpace = currentAscender - previousDescender;
 
             // 最初の文字の場合、累積オフセットは0のまま（ただし、文字のアセンダー分だけ下にずらす必要がある）
             if (index > 0 && normalizedText[index - 1] != '\n')
             {
+                // Yオフセットを更新: 
+                // 既存のyOffsetAccumulatorから、前の文字のディセンダーと現在の文字のアセンダーを考慮した間隔分を引く
+                float requiredSpace = (currentAscender - previousDescender) * scale;
                 yOffsetAccumulator -= requiredSpace + EXTRA_VERTICAL_SPACE;
             }
             // 最初の文字または改行直後の文字の場合、アセンダー分だけ下に配置する
             else if (index == 0 || (index > 0 && normalizedText[index - 1] == '\n'))
             {
-                yOffsetAccumulator -= currentAscender;
+                yOffsetAccumulator -= currentAscender * scale;
             }
 
             int materialIndex = charInfo.materialReferenceIndex;
