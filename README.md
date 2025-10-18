@@ -31,8 +31,9 @@ TextMeshProの縦書きテスト
 ```csharp
 "、。？！）】｝〕》.!?"
 
-定数名	説明	推奨値
-EXTRA_VERTICAL_SPACE：文字間の追加の縦スペース。
-FONT_SAFETY_MARGIN：文字のレンダリング上の重なりを防ぐための最小マージン。負の値でわずかな重なりを許容し、視覚的な密着を実現できます。
-HALF_SPACE_HEIGHT	半角スペースの縦方向の間隔。
-FULL_SPACE_HEIGHT	全角スペースの縦方向の間隔。
+| 定数名 | 説明 |
+| :--- | :--- |
+| **EXTRA_VERTICAL_SPACE** | 文字間の追加の縦スペース。 |
+| **FONT_SAFETY_MARGIN** | 文字のレンダリング上の重なりを防ぐための最小マージン。負の値でわずかな重なりを許容し、視覚的な密着を実現できます。 |
+| **HALF_SPACE_HEIGHT** | 半角スペースの縦方向の間隔。 |
+| **FULL_SPACE_HEIGHT** | 全角スペースの縦方向の間隔。 |
