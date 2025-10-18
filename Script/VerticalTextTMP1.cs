@@ -13,7 +13,7 @@ public class VerticalTextTMP1 : MonoBehaviour
     /// <summary>半角スペースの間隔</summary>
     private const float HALF_SPACE_HEIGHT = 10.0f;
     /// <summary>全角スペースの間隔</summary>
-    private const float FULL_SPACE_HEIGHT = 10.0f;
+    private const float FULL_SPACE_HEIGHT = 20.0f;
 
     /// <summary>句読点リスト</summary>
     private const string PUNCTUATION_MARKS = "、。？！）】｝〕》.!?";
@@ -158,7 +158,7 @@ public class VerticalTextTMP1 : MonoBehaviour
                     currentYPosition -= spaceMove;
                 }
 
-                // 【重要】スペースは頂点操作をしないが、次の文字の配置基準（previousBottomY）をリセットする
+                // スペースは頂点操作をしないが、次の文字の配置基準（previousBottomY）をリセットする
                 previousBottomY = 0f;
                 continue;
             }
@@ -184,7 +184,7 @@ public class VerticalTextTMP1 : MonoBehaviour
             // --- Y座標の計算と更新 ---
             float targetTopY; // 現在の文字の上端が目指すべき最終的なY座標
 
-            bool isColumnStart = (index == 0) || (index > 0 && normalizedText[index - 1] == '\n');
+            bool isColumnStart = (index == 0) || (index > 0 && normalizedText[index - 1] == '\n') && !isPunctuation;
 
             if (isColumnStart)
             {
