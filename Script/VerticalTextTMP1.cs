@@ -15,6 +15,9 @@ public class VerticalTextTMP1 : MonoBehaviour
     /// <summary>全角スペースの間隔</summary>
     private const float FULL_SPACE_HEIGHT = 10.0f;
 
+    /// <summary>句読点リスト</summary>
+    private const string PUNCTUATION_MARKS = "、。？！）】｝〕》.!?";
+
     private void Awake()
     {
         m_TextComponent = GetComponent<TMP_Text>();
@@ -68,6 +71,8 @@ public class VerticalTextTMP1 : MonoBehaviour
 
         // 【新規】前の可視文字の最終的な下端Y座標（ワールド空間での最小Y座標）を記憶
         float previousBottomY = 0f;
+        // 句読点によるロールバックが実行されたかどうかを記憶するフラグ
+        bool wasRolledBack = false;
 
         // 全ての列の開始高さを統一するための基準値（最初の可視文字のアセンダー）
         float referenceAscenderScaled = 0f;
@@ -87,12 +92,50 @@ public class VerticalTextTMP1 : MonoBehaviour
             var charInfo = textInfo.characterInfo[index];
             float charScale = charInfo.scale;
 
+            // 句読点チェック
+            bool isPunctuation = PUNCTUATION_MARKS.Contains(normalizedText[index]);
+            bool isAfterNewline = index > 0 && normalizedText[index - 1] == '\n';
+
             if (index < normalizedText.Length && normalizedText[index] == '\n')
             {   // 改行文字の場合、列を進める
                 currentColumn++;
                 currentYPosition = 0f;    // Y座標ベースをリセット
                 previousBottomY = 0f;     // 前の下端座標もリセット
                 continue;
+            }
+
+            // 改行直後に句読点が来た場合の処理（禁則処理）
+            if (isPunctuation && isAfterNewline)
+            {
+                // 1. 列を前に戻す（現在の行の文字として扱う）
+                currentColumn--;
+
+                // 2. Y座標を前の行の末尾に設定し直す。
+                //    前の行の末尾文字（index-2）を取得する。
+                if (index > 1)
+                {
+                    var prevCharInfo = textInfo.characterInfo[index - 2];
+
+                    // 前の文字（改行コードの直前）の最終的な下端Y座標
+                    // destVerticesはまだ前の文字の配置を終えた状態なので、その下端座標を取得
+                    int prevVertexIndex = prevCharInfo.vertexIndex;
+                    int prevMaterialIndex = prevCharInfo.materialReferenceIndex;
+                    Vector3[] prevDestVertices = textInfo.meshInfo[prevMaterialIndex].vertices;
+
+                    // 前の文字の最終的な下端Y座標 (頂点[0]または[3])
+                    float lastCharBottomY = prevDestVertices[prevVertexIndex].y;
+
+                    // currentYPosition を前の文字の下端座標に設定
+                    currentYPosition = lastCharBottomY;
+
+                    // previousBottomY は、新しい行の開始ではないため、リセットしない（後の計算で上書きされる）
+                    wasRolledBack = true;
+                }
+                else
+                {
+                    // 文の先頭でいきなり改行->句読点の場合、特別な処理はしない（エラー防止）
+                    currentColumn++; // 変更を取り消す
+                }
             }
 
 
@@ -153,7 +196,7 @@ public class VerticalTextTMP1 : MonoBehaviour
             else
             {
                 // 【ケース2】前の文字の下端 + マージンを、現在の文字の上端が目指す
-                // previousBottomY が 0 の場合（スペース後）は currentYPosition が使われる
+                // 句読点の場合、previousBottomY は前の可視文字の最終座標を指している。
                 if (previousBottomY != 0f)
                 {
                     // 頂点座標の最小値 (下端) を使用
@@ -193,6 +236,15 @@ public class VerticalTextTMP1 : MonoBehaviour
             // 【重要】次の文字が列の先頭ではない場合に備え、currentYPositionを更新
             // currentYPosition は次の文字のベースライン（または上端）の基準位置になる
             currentYPosition = previousBottomY;
+
+            if (wasRolledBack)
+            {
+                currentColumn++; // 列の戻しを取り消す
+                currentYPosition = 0f;    // Y座標ベースをリセット
+                previousBottomY = 0f;     // 前の下端座標もリセット
+                // ロールバックが発生した場合、フラグをリセット
+                wasRolledBack = false;
+            }
         }
 
         // メッシュ情報を更新
