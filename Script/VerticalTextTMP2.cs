@@ -22,6 +22,8 @@ public class VerticalTextTMP2 : MonoBehaviour
 
     /// <summary>句読点リスト</summary>
     private const string PUNCTUATION_MARKS = "、。？！）】｝〕》.!?";
+    /// <summary>縦中横で回転させる文字リスト（長音符、ダッシュ、約物など）</summary>
+    private const string ROTATE_MARKS = "ー〜―…‥！？「」『』【】［］〈〉（）｛｝〔〕《》";
 
     /// <summary>
     /// Awake
@@ -154,6 +156,7 @@ public class VerticalTextTMP2 : MonoBehaviour
         float charScale = charInfo.scale;
 
         bool isPunctuation = PUNCTUATION_MARKS.Contains(normalizedText[index]);
+        bool shouldRotate = ROTATE_MARKS.Contains(normalizedText[index]);
         bool isAfterNewline = index > 0 && normalizedText[index - 1] == '\n';
 
         // 1. 改行コードの処理
@@ -212,6 +215,7 @@ public class VerticalTextTMP2 : MonoBehaviour
             columnSpacing,
             referenceAscenderScaled,
             isPunctuation,
+            shouldRotate,
             ref currentColumn,
             ref currentYPosition,
             ref previousBottomY);
@@ -238,6 +242,7 @@ public class VerticalTextTMP2 : MonoBehaviour
         float columnSpacing,
         float referenceAscenderScaled,
         bool isPunctuation,
+        bool shouldRotate,
         ref int currentColumn,
         ref float currentYPosition,
         ref float previousBottomY)
@@ -250,6 +255,30 @@ public class VerticalTextTMP2 : MonoBehaviour
         for (int i = 0; i < 4; i++)
         {
             vertices[i] = destVertices[vertexIndex + i];
+        }
+
+        // --- 縦中横の回転処理（90度時計回り） ---
+        if (shouldRotate)
+        {
+            // 回転のピボットを計算 (現在の頂点群の中心)
+            // この時点の頂点は、TMPによって標準的な水平配置の状態でセットされている
+            Vector3 pivot = (vertices[0] + vertices[1] + vertices[2] + vertices[3]) / 4f;
+
+            for (int i = 0; i < 4; i++)
+            {
+                Vector3 v = vertices[i];
+
+                // 1. ピボット中心に移動 (原点へ)
+                float x = v.x - pivot.x;
+                float y = v.y - pivot.y;
+
+                // 2. -90度回転 (時計回り): (x, y) -> (y, -x)
+                float rotatedX = y;
+                float rotatedY = -x;
+
+                // 3. ピボットの位置に戻す
+                vertices[i] = new Vector3(rotatedX + pivot.x, rotatedY + pivot.y, v.z);
+            }
         }
 
         // --- Y座標の計算 ---
@@ -281,6 +310,25 @@ public class VerticalTextTMP2 : MonoBehaviour
         Vector3 charCenter = (destVertices[vertexIndex] + destVertices[vertexIndex + 2]) / 2;
         float columnMoveX = -currentColumn * columnSpacing;
         float horizontalOffset = columnMoveX + (startX - charCenter.x);
+
+        // 回転文字の場合、微調整で中央寄せ
+        if (shouldRotate)
+        {
+            float charScale = charInfo.scale;
+
+            // 1. 正しい元の幅と高さを計算 (スケール込み)
+            // 元の幅 (Horizontal Width) = advance * scale
+            float originalWidthScaled = charInfo.xAdvance * charScale;
+            // 元の高さ (Vertical Height) = (ascender - descender) * scale
+            float originalHeightScaled = (charInfo.ascender - charInfo.descender) * charScale;
+
+            // 2. X方向のずれ (縦書きラインの中心に乗せるための補正量)
+            // 回転後の文字の幅 (元の高さ) と、列の基準幅 (元の幅) の差分を補正
+            float correctionX = (originalHeightScaled - originalWidthScaled) / 2f;
+
+            horizontalOffset += correctionX;
+        }
+
         Vector3 finalOffset = new Vector3(horizontalOffset, verticalOffset, 0);
 
         // 頂点にオフセットを適用
@@ -290,8 +338,22 @@ public class VerticalTextTMP2 : MonoBehaviour
         }
 
         // --- 状態変数の更新 ---
+        if (shouldRotate)
+        {
+            float minrotatedY = destVertices[vertexIndex].y;
+            for (int i = 0; i < 4; i++)
+            {   // すべての頂点から、最も低いY座標を見つける
+                minrotatedY = Mathf.Min(minrotatedY, destVertices[vertexIndex + i].y);
+
+            }
+            previousBottomY = minrotatedY;
+        }
+        else
+        {
+            previousBottomY = destVertices[vertexIndex].y;
+        }
+
         // 次の反復のために、現在の文字の最終的な下端Y座標を記憶する
-        previousBottomY = destVertices[vertexIndex].y;
         currentYPosition = previousBottomY;
     }
     // --------------------------------------------------------------------------------------
