@@ -38,8 +38,6 @@ public class VerticalTextTMP2 : MonoBehaviour
     /// </summary>
     private void OnEnable()
     {
-        AddTextChangedEvent();
-        _textComponent.ForceMeshUpdate();
         UpdateVerticalText();
     }
 
@@ -57,6 +55,8 @@ public class VerticalTextTMP2 : MonoBehaviour
     /// </summary>
     private void UpdateVerticalText()
     {
+        if (_textComponent == null) return;
+
         RemoveTextChangedEvent();
 
         _textComponent.ForceMeshUpdate();
@@ -79,7 +79,6 @@ public class VerticalTextTMP2 : MonoBehaviour
         float currentYPosition = 0f;
         float previousBottomY = 0f;
         bool wasRolledBack = false;
-        string normalizedText = _textComponent.text.Replace("\\n", "\n");
 
         // --- メインループ ---
         for (int index = 0; index < textInfo.characterCount; index++)
@@ -91,7 +90,6 @@ public class VerticalTextTMP2 : MonoBehaviour
                 index,
                 charInfo,
                 textInfo,
-                normalizedText,
                 startX,
                 columnSpacing,
                 referenceAscenderScaled,
@@ -116,24 +114,25 @@ public class VerticalTextTMP2 : MonoBehaviour
         out float columnSpacing,
         out float referenceAscenderScaled)
     {
-        Vector3[] firstDestVertices = textInfo.meshInfo[0].vertices;
-        float baseCharacterHeight = firstDestVertices[1].y - firstDestVertices[0].y;
-
-        // 1文字目の左上X座標を列の基準とする
-        startX = firstDestVertices[1].x;
-        // 列間の間隔を設定
-        columnSpacing = baseCharacterHeight * COLUMN_SPACING_RATIO;
-
-        // 全ての列の開始高さを統一するための基準値
+        startX = 0f;
+        columnSpacing = 0f;
         referenceAscenderScaled = 0f;
+
+        // 最初の可視文字からすべての基準値を取得する
         for (int i = 0; i < textInfo.characterCount; i++)
         {
             var cInfo = textInfo.characterInfo[i];
-            if (cInfo.isVisible)
-            {
-                referenceAscenderScaled = cInfo.ascender * cInfo.scale;
-                break;
-            }
+            if (!cInfo.isVisible) continue;
+
+            int vIdx = cInfo.vertexIndex;
+            int mIdx = cInfo.materialReferenceIndex;
+            Vector3[] verts = textInfo.meshInfo[mIdx].vertices;
+
+            float charHeight = verts[vIdx + 1].y - verts[vIdx].y; // TL.y - BL.y
+            startX = verts[vIdx + 1].x;                            // 左上X座標を列の基準とする
+            columnSpacing = charHeight * COLUMN_SPACING_RATIO;
+            referenceAscenderScaled = cInfo.ascender * cInfo.scale;
+            break;
         }
     }
     // --------------------------------------------------------------------------------------
@@ -144,7 +143,6 @@ public class VerticalTextTMP2 : MonoBehaviour
         int index,
         TMP_CharacterInfo charInfo,
         TMP_TextInfo textInfo,
-        string normalizedText,
         float startX,
         float columnSpacing,
         float referenceAscenderScaled,
@@ -155,12 +153,12 @@ public class VerticalTextTMP2 : MonoBehaviour
     {
         float charScale = charInfo.scale;
 
-        bool isPunctuation = PUNCTUATION_MARKS.Contains(normalizedText[index]);
-        bool shouldRotate = ROTATE_MARKS.Contains(normalizedText[index]);
-        bool isAfterNewline = index > 0 && normalizedText[index - 1] == '\n';
+        bool isPunctuation = PUNCTUATION_MARKS.Contains(charInfo.character);
+        bool shouldRotate = ROTATE_MARKS.Contains(charInfo.character);
+        bool isAfterNewline = index > 0 && textInfo.characterInfo[index - 1].character == '\n';
 
         // 1. 改行コードの処理
-        if (index < normalizedText.Length && normalizedText[index] == '\n')
+        if (charInfo.character == '\n')
         {
             currentColumn++;
             currentYPosition = 0f;
@@ -179,8 +177,12 @@ public class VerticalTextTMP2 : MonoBehaviour
                 int prevMaterialIndex = prevCharInfo.materialReferenceIndex;
                 Vector3[] prevDestVertices = textInfo.meshInfo[prevMaterialIndex].vertices;
 
-                // 前の文字の最終的な下端Y座標を取得
+                // 前の文字の最終的な下端Y座標を取得（回転文字も考慮して4頂点の最小値を使う）
                 float lastCharBottomY = prevDestVertices[prevVertexIndex].y;
+                for (int i = 1; i < 4; i++)
+                {
+                    lastCharBottomY = Mathf.Min(lastCharBottomY, prevDestVertices[prevVertexIndex + i].y);
+                }
                 currentYPosition = lastCharBottomY;
                 wasRolledBack = true;
             }
@@ -193,7 +195,7 @@ public class VerticalTextTMP2 : MonoBehaviour
         // 3. 非可視文字（スペース）の処理
         if (!charInfo.isVisible)
         {
-            char c = normalizedText[index];
+            char c = charInfo.character;
             float spaceMove = (c == ' ') ? HALF_SPACE_HEIGHT * charScale :
                              ((c == '　') ? FULL_SPACE_HEIGHT * charScale : 0f);
 
@@ -210,7 +212,6 @@ public class VerticalTextTMP2 : MonoBehaviour
             index,
             charInfo,
             textInfo,
-            normalizedText,
             startX,
             columnSpacing,
             referenceAscenderScaled,
@@ -237,7 +238,6 @@ public class VerticalTextTMP2 : MonoBehaviour
         int index,
         TMP_CharacterInfo charInfo,
         TMP_TextInfo textInfo,
-        string normalizedText,
         float startX,
         float columnSpacing,
         float referenceAscenderScaled,
@@ -285,7 +285,7 @@ public class VerticalTextTMP2 : MonoBehaviour
         float targetTopY;
 
         // 句読点によるロールバックが発生した場合、Column Startと見なさない
-        bool isColumnStart = (index == 0) || (index > 0 && normalizedText[index - 1] == '\n') && !isPunctuation;
+        bool isColumnStart = (index == 0) || ((index > 0 && textInfo.characterInfo[index - 1].character == '\n') && !isPunctuation);
 
         if (isColumnStart)
         {
@@ -299,7 +299,8 @@ public class VerticalTextTMP2 : MonoBehaviour
             }
             else
             {
-                targetTopY = currentYPosition - EXTRA_VERTICAL_SPACE - FONT_SAFETY_MARGIN;
+                // スペース直後はスペース量で十分な間隔があるためFONT_SAFETY_MARGINを加算しない
+                targetTopY = currentYPosition - EXTRA_VERTICAL_SPACE;
             }
         }
 

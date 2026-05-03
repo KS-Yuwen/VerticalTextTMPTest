@@ -1,78 +1,131 @@
 ﻿using TMPro;
 using UnityEngine;
-using UnityEngine.UIElements;
 
 /// <summary>
-/// TextMeshProを縦書きにするコンポーネント
-/// TMP_TextInfoの頂点情報を操作して縦書きを実現します。
+/// TextMeshPro 用縦書きレイアウトコンポーネント
 /// </summary>
-[RequireComponent(typeof(TMP_Text))]
 public class VerticalTextTMP : MonoBehaviour
 {
-    private TMP_Text m_TextComponent = null;
+    /// <summary>テキストコンポーネント</summary>
+    private TMP_Text _textComponent = null;
 
     /// <summary>文字間の追加スペース(0で密着)</summary>
-    private const float EXTRA_VERTICAL_SPACE = 2.0f;
+    private const float EXTRA_VERTICAL_SPACE = 0.0f;
+    /// <summary>フォントのレンダリング上の重なりを避けるための最小マージン</summary>
+    private const float FONT_SAFETY_MARGIN = 0.5f;
     /// <summary>半角スペースの間隔</summary>
     private const float HALF_SPACE_HEIGHT = 10.0f;
     /// <summary>全角スペースの間隔</summary>
-    private const float FULL_SPACE_HEIGHT = 10.0f;
+    private const float FULL_SPACE_HEIGHT = 20.0f;
+    /// <summary>列間の倍率（文字高さに対する）</summary>
+    private const float COLUMN_SPACING_RATIO = 1.0f;
 
+    /// <summary>句読点リスト</summary>
+    private const string PUNCTUATION_MARKS = "、。？！）】｝〕》.!?";
+    /// <summary>縦中横で回転させる文字リスト（長音符、ダッシュ、約物など）</summary>
+    private const string ROTATE_MARKS = "ー〜―…‥！？「」『』【】［］〈〉（）｛｝〔〕《》";
+
+    /// <summary>
+    /// Awake
+    /// </summary>
     private void Awake()
     {
-        m_TextComponent = GetComponent<TMP_Text>();
+        _textComponent = GetComponent<TMP_Text>();
     }
 
+    /// <summary>
+    /// OnEnable
+    /// </summary>
     private void OnEnable()
     {
-        addTextChangedEvent();
-        m_TextComponent.ForceMeshUpdate();
+        AddTextChangedEvent();
+        _textComponent.ForceMeshUpdate();
         UpdateVerticalText();
-
     }
 
+    /// <summary>
+    /// OnDisable
+    /// </summary>
     private void OnDisable()
     {
-        removeTextChangeEvent();
+        RemoveTextChangedEvent();
     }
 
     /// <summary>
     /// 縦書き処理の実行
+    /// メインとなる処理の流れを記述し、詳細な処理は補助関数に切り出します。
     /// </summary>
     private void UpdateVerticalText()
     {
-        // 無限ループ防止策：頂点操作中はイベントを一時的に解除
-        removeTextChangeEvent();
+        RemoveTextChangedEvent();
 
-        // メッシュ情報を取得
-        m_TextComponent.ForceMeshUpdate();
-        TMP_TextInfo textInfo = m_TextComponent.textInfo;
+        _textComponent.ForceMeshUpdate();
+        TMP_TextInfo textInfo = _textComponent.textInfo;
         if (textInfo.characterCount == 0)
         {
-            addTextChangedEvent();
+            AddTextChangedEvent();
             return;
         }
 
-        // --- 定数の定義と初期化 ---
+        // --- 初期化 ---
+        InitializeTextLayout(
+            textInfo,
+            out float startX,
+            out float columnSpacing,
+            out float referenceAscenderScaled);
+
+        // --- 状態変数 ---
+        int currentColumn = 0;
+        float currentYPosition = 0f;
+        float previousBottomY = 0f;
+        bool wasRolledBack = false;
+        string normalizedText = _textComponent.text.Replace("\\n", "\n");
+
+        // --- メインループ ---
+        for (int index = 0; index < textInfo.characterCount; index++)
+        {
+            var charInfo = textInfo.characterInfo[index];
+
+            // 文字処理と状態更新
+            ProcessCharacter(
+                index,
+                charInfo,
+                textInfo,
+                normalizedText,
+                startX,
+                columnSpacing,
+                referenceAscenderScaled,
+                ref currentColumn,
+                ref currentYPosition,
+                ref previousBottomY,
+                ref wasRolledBack);
+        }
+
+        // --- 頂点更新 ---
+        FinalizeMeshUpdate(textInfo);
+
+        AddTextChangedEvent();
+    }
+
+    /// <summary>
+    /// レイアウトの基本定数と基準値を計算し、初期化します。
+    /// </summary>
+    private void InitializeTextLayout(
+        TMP_TextInfo textInfo,
+        out float startX,
+        out float columnSpacing,
+        out float referenceAscenderScaled)
+    {
         Vector3[] firstDestVertices = textInfo.meshInfo[0].vertices;
-        // 1文字の高さ（縦書き時の幅に相当）
         float baseCharacterHeight = firstDestVertices[1].y - firstDestVertices[0].y;
+
         // 1文字目の左上X座標を列の基準とする
-        float startX = textInfo.meshInfo[0].vertices[1].x;
-        // 列間の間隔を設定（調整可能）
-        float columnSpacing = baseCharacterHeight * 1.5f;
+        startX = firstDestVertices[1].x;
+        // 列間の間隔を設定
+        columnSpacing = baseCharacterHeight * COLUMN_SPACING_RATIO;
 
-        int currentColumn = 0;  // 現在の列(0始まり)
-        float yOffsetAccumulator = 0f;  // 累積的なY座標オフセット。この値が次の文字の配置基準になる。
-
-        string originalText = m_TextComponent.text;
-        string normalizedText = originalText.Replace("\\n", "\n"); // 改行コードを統一
-
-        // 最後の文字のディセンダーを記憶し、次の文字のアセンダーとの間隔を計算する
-        float previousDescender = 0f;
-
-        // 全ての列の開始高さを統一するための基準値（最初の可視文字のアセンダー）
-        float referenceAscenderScaled = 0f;
+        // 全ての列の開始高さを統一するための基準値
+        referenceAscenderScaled = 0f;
         for (int i = 0; i < textInfo.characterCount; i++)
         {
             var cInfo = textInfo.characterInfo[i];
@@ -82,147 +135,267 @@ public class VerticalTextTMP : MonoBehaviour
                 break;
             }
         }
+    }
+    // --------------------------------------------------------------------------------------
+    /// <summary>
+    /// 個々の文字の配置処理、改行/スペース処理、禁則処理、状態更新を行います。
+    /// </summary>
+    private void ProcessCharacter(
+        int index,
+        TMP_CharacterInfo charInfo,
+        TMP_TextInfo textInfo,
+        string normalizedText,
+        float startX,
+        float columnSpacing,
+        float referenceAscenderScaled,
+        ref int currentColumn,
+        ref float currentYPosition,
+        ref float previousBottomY,
+        ref bool wasRolledBack)
+    {
+        float charScale = charInfo.scale;
 
-        // --- メインループ ---
-        // 各文字の頂点を回転・移動
-        for (int index = 0; index < textInfo.characterCount; index++)
+        bool isPunctuation = PUNCTUATION_MARKS.Contains(normalizedText[index]);
+        bool shouldRotate = ROTATE_MARKS.Contains(normalizedText[index]);
+        bool isAfterNewline = index > 0 && normalizedText[index - 1] == '\n';
+
+        // 1. 改行コードの処理
+        if (index < normalizedText.Length && normalizedText[index] == '\n')
         {
-            var charInfo = textInfo.characterInfo[index];
-
-            // TextMeshProの文字数と正規化された文字列の文字数は一致しない可能性があるため
-            // ここでは頂点情報に紐づく元のインデックスをチェック
-            // ただし、charInfo.index と normalizedText[index] はほぼ対応している前提で進める
-            if (index < normalizedText.Length && normalizedText[index] == '\n')
-            {   // 改行文字の場合、列を進める
-                currentColumn++;
-                yOffsetAccumulator = 0f;    // Yオフセットをリセット
-                previousDescender = 0f;     // ディセンダーもリセット
-                continue;
-            }
-
-            float charScale = charInfo.scale;
-
-            if (!charInfo.isVisible)
-            {
-                char c = normalizedText[index];
-                float spaceMove = 0f;
-
-                if (c == ' ')
-                {   // 半角スペース
-                    spaceMove = HALF_SPACE_HEIGHT * charScale;
-                }
-                else if (c == '　')
-                {   // 全角スペース
-                    spaceMove = FULL_SPACE_HEIGHT * charScale;
-                }
-
-                if (spaceMove > 0f)
-                {   // スペースの高さ分だけオフセットを進める
-                    yOffsetAccumulator -= spaceMove;
-                }
-                // スペース直後の文字は「改行後」と同じ基準高さから始まるようにリセットする
-                previousDescender = 0f;
-                continue;
-            }
-
-            // 可視文字の処理
-            // 次の文字を配置するためのYオフセットを計算
-            // 前の文字のディセンダーと、現在の文字のアセンダーを考慮
-            float currentAscender = charInfo.ascender; // 現在の文字の上端
-
-            // --- Yオフセットの計算と更新 ---
-            bool isColumnStart = (index == 0) || (index > 0 && normalizedText[index - 1] == '\n');
-            bool isAfterReset = previousDescender == 0f;
-
-
-            // 最初の文字または改行直後の文字の場合
-            if (isColumnStart)
-            {   // 固定の基準高さを使用: 1行目の文字と同じ高さから開始
-                yOffsetAccumulator -= referenceAscenderScaled;
-            }
-            // スペース直後
-            else if (isAfterReset)
-            {
-                yOffsetAccumulator -= (currentAscender * charScale) + EXTRA_VERTICAL_SPACE;
-            }
-            // 連続する文字の場合
-            else
-            {   // 密着調整: 前の文字の下端と現在の文字の上端の差分を計算
-                // requiredMove は次の文字のアセンダー(scaled)から前の文字のディセンダー(scaled)までの距離
-                float requiredMove = (currentAscender * charScale) - previousDescender;
-                yOffsetAccumulator -= requiredMove + EXTRA_VERTICAL_SPACE;
-            }
-
-            int materialIndex = charInfo.materialReferenceIndex;
-            int vertexIndex = charInfo.vertexIndex;
-            Vector3[] destVertices = textInfo.meshInfo[materialIndex].vertices;
-
-            // 文字の中心座標を計算（回転のピボットに使用）
-            Vector3 charCenter = (destVertices[vertexIndex] + destVertices[vertexIndex + 2]) / 2;
-
-
-            // 一時的な頂点配列にコピー
-            Vector3[] vertices = new Vector3[4];
-            for (int i = 0; i < 4; i++)
-            {
-                vertices[i] = destVertices[vertexIndex + i];
-            }
-
-            // --- 縦書き位置への移動オフセットを計算 ---
-
-            // 縦書きの列全体を X 座標で右から左へ移動させるためのオフセット
-            float columnMoveX = -currentColumn * columnSpacing;
-
-            // Y座標オフセット: 現在の列内の文字数 * 1文字の高さ（下に移動）
-            float verticalOffset = yOffsetAccumulator;
-
-            // X座標補正: 
-            // 1. 回転後の現在の文字の中心X座標（charCenter.x）を取得
-            // 2. 基準X座標（startX）との差分を計算
-            // 3. columnMoveX (列移動) を加算
-            float horizontalOffset = columnMoveX + (startX - charCenter.x);
-
-            // Y座標の移動と、X座標の列移動を適用
-            Vector3 finalOffset = new Vector3(horizontalOffset, verticalOffset, 0);
-
-            // --- 頂点にオフセットを適用 ---
-            for (int i = 0; i < 4; i++)
-            {
-                // 既存の頂点情報（回転適用済み）に最終的なオフセットを加える
-                destVertices[vertexIndex + i] = vertices[i] + finalOffset;
-            }
-
-            previousDescender = charInfo.descender * charScale;
+            currentColumn++;
+            currentYPosition = 0f;
+            previousBottomY = 0f;
+            return;
         }
 
-        // メッシュ情報を更新
+        // 2. 禁則処理（改行直後の句読点を前の行末へ）
+        if (isPunctuation && isAfterNewline)
+        {
+            currentColumn--;
+            if (index > 1)
+            {
+                var prevCharInfo = textInfo.characterInfo[index - 2];
+                int prevVertexIndex = prevCharInfo.vertexIndex;
+                int prevMaterialIndex = prevCharInfo.materialReferenceIndex;
+                Vector3[] prevDestVertices = textInfo.meshInfo[prevMaterialIndex].vertices;
+
+                // 前の文字の最終的な下端Y座標を取得
+                float lastCharBottomY = prevDestVertices[prevVertexIndex].y;
+                currentYPosition = lastCharBottomY;
+                wasRolledBack = true;
+            }
+            else
+            {
+                currentColumn++; // 変更を取り消す
+            }
+        }
+
+        // 3. 非可視文字（スペース）の処理
+        if (!charInfo.isVisible)
+        {
+            char c = normalizedText[index];
+            float spaceMove = (c == ' ') ? HALF_SPACE_HEIGHT * charScale :
+                             ((c == '　') ? FULL_SPACE_HEIGHT * charScale : 0f);
+
+            if (spaceMove > 0f)
+            {
+                currentYPosition -= spaceMove;
+            }
+            previousBottomY = 0f; // スペース後の文字はベースラインリセット
+            return;
+        }
+
+        // 4. 可視文字の配置計算と頂点適用
+        ApplyCharacterLayout(
+            index,
+            charInfo,
+            textInfo,
+            normalizedText,
+            startX,
+            columnSpacing,
+            referenceAscenderScaled,
+            isPunctuation,
+            shouldRotate,
+            ref currentColumn,
+            ref currentYPosition,
+            ref previousBottomY);
+
+        // 5. ロールバック後の状態リセット
+        if (wasRolledBack)
+        {
+            currentColumn++;
+            currentYPosition = 0f;
+            previousBottomY = 0f;
+            wasRolledBack = false;
+        }
+    }
+
+    /// <summary>
+    /// Y座標の計算、オフセットの適用、状態変数の更新を行います。
+    /// </summary>
+    private void ApplyCharacterLayout(
+        int index,
+        TMP_CharacterInfo charInfo,
+        TMP_TextInfo textInfo,
+        string normalizedText,
+        float startX,
+        float columnSpacing,
+        float referenceAscenderScaled,
+        bool isPunctuation,
+        bool shouldRotate,
+        ref int currentColumn,
+        ref float currentYPosition,
+        ref float previousBottomY)
+    {
+        int materialIndex = charInfo.materialReferenceIndex;
+        int vertexIndex = charInfo.vertexIndex;
+        Vector3[] destVertices = textInfo.meshInfo[materialIndex].vertices;
+
+        Vector3[] vertices = new Vector3[4];
+        for (int i = 0; i < 4; i++)
+        {
+            vertices[i] = destVertices[vertexIndex + i];
+        }
+
+        // --- 縦中横の回転処理（90度時計回り） ---
+        if (shouldRotate)
+        {
+            // 回転のピボットを計算 (現在の頂点群の中心)
+            // この時点の頂点は、TMPによって標準的な水平配置の状態でセットされている
+            Vector3 pivot = (vertices[0] + vertices[1] + vertices[2] + vertices[3]) / 4f;
+
+            for (int i = 0; i < 4; i++)
+            {
+                Vector3 v = vertices[i];
+
+                // 1. ピボット中心に移動 (原点へ)
+                float x = v.x - pivot.x;
+                float y = v.y - pivot.y;
+
+                // 2. -90度回転 (時計回り): (x, y) -> (y, -x)
+                float rotatedX = y;
+                float rotatedY = -x;
+
+                // 3. ピボットの位置に戻す
+                vertices[i] = new Vector3(rotatedX + pivot.x, rotatedY + pivot.y, v.z);
+            }
+        }
+
+        // --- Y座標の計算 ---
+        float targetTopY;
+
+        // 句読点によるロールバックが発生した場合、Column Startと見なさない
+        bool isColumnStart = (index == 0) || (index > 0 && normalizedText[index - 1] == '\n') && !isPunctuation;
+
+        if (isColumnStart)
+        {
+            targetTopY = currentYPosition - referenceAscenderScaled;
+        }
+        else
+        {
+            if (previousBottomY != 0f)
+            {
+                targetTopY = previousBottomY - EXTRA_VERTICAL_SPACE - FONT_SAFETY_MARGIN;
+            }
+            else
+            {
+                targetTopY = currentYPosition - EXTRA_VERTICAL_SPACE - FONT_SAFETY_MARGIN;
+            }
+        }
+
+        // 頂点移動に必要な Y オフセットを計算
+        float verticalOffset = targetTopY - vertices[1].y;
+
+        // --- X座標の計算と頂点適用 ---
+        Vector3 charCenter = (destVertices[vertexIndex] + destVertices[vertexIndex + 2]) / 2;
+        float columnMoveX = -currentColumn * columnSpacing;
+        float horizontalOffset = columnMoveX + (startX - charCenter.x);
+
+        // 回転文字の場合、微調整で中央寄せ
+        if (shouldRotate)
+        {
+            float charScale = charInfo.scale;
+
+            // 1. 正しい元の幅と高さを計算 (スケール込み)
+            // 元の幅 (Horizontal Width) = advance * scale
+            float originalWidthScaled = charInfo.xAdvance * charScale;
+            // 元の高さ (Vertical Height) = (ascender - descender) * scale
+            float originalHeightScaled = (charInfo.ascender - charInfo.descender) * charScale;
+
+            // 2. X方向のずれ (縦書きラインの中心に乗せるための補正量)
+            // 回転後の文字の幅 (元の高さ) と、列の基準幅 (元の幅) の差分を補正
+            float correctionX = (originalHeightScaled - originalWidthScaled) / 2f;
+
+            horizontalOffset += correctionX;
+        }
+
+        Vector3 finalOffset = new Vector3(horizontalOffset, verticalOffset, 0);
+
+        // 頂点にオフセットを適用
+        for (int i = 0; i < 4; i++)
+        {
+            destVertices[vertexIndex + i] = vertices[i] + finalOffset;
+        }
+
+        // --- 状態変数の更新 ---
+        if (shouldRotate)
+        {
+            float minrotatedY = destVertices[vertexIndex].y;
+            for (int i = 0; i < 4; i++)
+            {   // すべての頂点から、最も低いY座標を見つける
+                minrotatedY = Mathf.Min(minrotatedY, destVertices[vertexIndex + i].y);
+
+            }
+            previousBottomY = minrotatedY;
+        }
+        else
+        {
+            previousBottomY = destVertices[vertexIndex].y;
+        }
+
+        // 次の反復のために、現在の文字の最終的な下端Y座標を記憶する
+        currentYPosition = previousBottomY;
+    }
+    // --------------------------------------------------------------------------------------
+    /// <summary>
+    /// 変更された頂点情報に基づいてメッシュを更新します。
+    /// </summary>
+    private void FinalizeMeshUpdate(TMP_TextInfo textInfo)
+    {
         for (int i = 0; i < textInfo.meshInfo.Length; i++)
         {
             textInfo.meshInfo[i].mesh.vertices = textInfo.meshInfo[i].vertices;
-            m_TextComponent.UpdateGeometry(textInfo.meshInfo[i].mesh, i);
+            _textComponent.UpdateGeometry(textInfo.meshInfo[i].mesh, i);
         }
-
-
-        addTextChangedEvent();
     }
 
-    private void OnTextChanged(UnityEngine.Object obj)
+    // --- イベントハンドラ ---
+
+    /// <summary>
+    /// テキスト変更イベントハンドラ
+    /// </summary>
+    /// <param name="obj"></param>
+    private void OnTextChanged(Object obj)
     {
-        // 変更があったコンポーネントが自身であるか確認
-        if (obj == m_TextComponent)
+        if (obj == _textComponent)
         {
             UpdateVerticalText();
         }
     }
 
-    private void addTextChangedEvent()
+    /// <summary>
+    /// テキスト変更イベントの登録
+    /// </summary>
+    private void AddTextChangedEvent()
     {
         TMPro_EventManager.TEXT_CHANGED_EVENT.Add(OnTextChanged);
     }
 
-    private void removeTextChangeEvent()
+    /// <summary>
+    /// テキスト変更イベントの解除
+    /// </summary>
+    private void RemoveTextChangedEvent()
     {
-        // RectTransformが削除された場合のクリーンアップ
         TMPro_EventManager.TEXT_CHANGED_EVENT.Remove(OnTextChanged);
     }
 }
