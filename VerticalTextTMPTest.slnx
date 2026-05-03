@@ -1,6 +1,6 @@
 ﻿<Solution>
+  <Project Path="VerticalTextTMP.Editor.csproj" />
   <Project Path="Assembly-CSharp-Editor.csproj" />
-  <Project Path="VerticalTextTMP2.csproj" />
+  <Project Path="VerticalTextTMP.csproj" />
   <Project Path="Assembly-CSharp.csproj" />
-  <Project Path="VerticalTextTMP2.Editor.csproj" />
 </Solution>

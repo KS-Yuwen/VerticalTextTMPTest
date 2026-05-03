@@ -6,7 +6,7 @@ using TMPro;
 /// <summary>
 /// TMP エディタクラスをリフレクションで取得して委譲する共通基底クラス
 /// </summary>
-public abstract class VerticalTextTMP2Inspector : Editor
+public abstract class VerticalTextTMPInspector : Editor
 {
     private Editor _tmpEditor;
     protected abstract string TmpEditorClassName { get; }
@@ -36,7 +36,7 @@ public abstract class VerticalTextTMP2Inspector : Editor
     private void DrawVerticalToggle()
     {
         var tmp = (TMP_Text)target;
-        bool has = tmp.GetComponent<VerticalTextTMP2>() != null;
+        bool has = tmp.GetComponent<VerticalTextTMP>() != null;
 
         EditorGUILayout.Space();
         EditorGUILayout.LabelField("縦書き設定", EditorStyles.boldLabel);
@@ -44,8 +44,8 @@ public abstract class VerticalTextTMP2Inspector : Editor
         bool val = EditorGUILayout.Toggle("縦書きレイアウト", has);
         if (EditorGUI.EndChangeCheck() && val != has)
         {
-            if (val) Undo.AddComponent<VerticalTextTMP2>(tmp.gameObject);
-            else Undo.DestroyObjectImmediate(tmp.GetComponent<VerticalTextTMP2>());
+            if (val) Undo.AddComponent<VerticalTextTMP>(tmp.gameObject);
+            else Undo.DestroyObjectImmediate(tmp.GetComponent<VerticalTextTMP>());
         }
     }
 
@@ -62,14 +62,14 @@ public abstract class VerticalTextTMP2Inspector : Editor
 
 [CustomEditor(typeof(TextMeshProUGUI), true)]
 [CanEditMultipleObjects]
-public class VerticalTextUGUIInspector : VerticalTextTMP2Inspector
+public class VerticalTextUGUIInspector : VerticalTextTMPInspector
 {
     protected override string TmpEditorClassName => "TMP_UiEditorPanel";
 }
 
 [CustomEditor(typeof(TextMeshPro), true)]
 [CanEditMultipleObjects]
-public class VerticalTextWorldInspector : VerticalTextTMP2Inspector
+public class VerticalTextWorldInspector : VerticalTextTMPInspector
 {
     protected override string TmpEditorClassName => "TMP_EditorPanel";
 }
